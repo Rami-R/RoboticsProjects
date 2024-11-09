@@ -1,28 +1,41 @@
-// Threshold values
-const int threshold = 100;  // IR sensor threshold for detecting line
-const int threshold2 = 9;   // Ultrasonic sensor threshold for obstacle detection
+// Define constants
+const int threshold = 100; // Threshold value for IR sensors
+const int threshold2 = 9;  // Threshold value for ultrasonic sensor
 
-// Ultrasonic sensor pins
-int pinTrig = 4;  // Trigger pin
-int pinEcho = 3;  // Echo pin
-long timeElapsed;
+// Ultrasonic sensor
+int pinTrig = 4;
+int pinEcho = 3;
+long temps;
 int distance;
 
-// Motor connections
-#define enA 10  // Motor A speed control
-#define in1 A0  // Motor A direction control 1
-#define in2 A1  // Motor A direction control 2
-#define enB 11  // Motor B speed control
-#define in3 A2  // Motor B direction control 1
-#define in4 A3  // Motor B direction control 2
+// Motor A connections
+#define enA 10
+#define in1 A0
+#define in2 A1
 
-// IR sensor pins
-#define IR1 A5  // Left sensor
-#define IR2 2   // Center sensor
-#define IR3 A4  // Right sensor
+// Motor B connections
+#define enB 11
+#define in3 A2
+#define in4 A3
 
-// Speed constant for motors
-const int MAX_SPEED = 255;  // Max motor speed (range 0-255)
+// IR Sensor Pins
+#define IR1  A5
+#define IR2  2
+#define IR3  A4
+
+// PID variables
+double Setpoint = 0;  // Desired setpoint
+double Input = 0;     // Current sensor value
+double Output = 0;    // PID output
+
+// PID tuning parameters
+double Kp = 1.0;   // Proportional gain
+double Ki = 0.0;   // Integral gain
+double Kd = 0.0;   // Derivative gain
+
+// Create PID object
+#include <PID_v1.h>
+PID pid(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
 // Function Prototypes
 void Forward();
@@ -31,8 +44,9 @@ void Right();
 void Stop();
 void U_Turn();
 
+// Setup function
 void setup() {
-  // Set up motor control pins as outputs
+  // Set motor control pins to outputs
   pinMode(enA, OUTPUT);
   pinMode(enB, OUTPUT);
   pinMode(in1, OUTPUT);
@@ -40,95 +54,112 @@ void setup() {
   pinMode(in3, OUTPUT);
   pinMode(in4, OUTPUT);
 
-  // Initial state: motors off
+  // Initial motor state: OFF
   digitalWrite(in1, LOW);
   digitalWrite(in2, LOW);
   digitalWrite(in3, LOW);
   digitalWrite(in4, LOW);
 
-  // Serial communication for debugging
+  // Start the Serial Communication
   Serial.begin(9600);
 
-  // IR sensor pins set as inputs
+  // Set all the IR Sensor Pins as inputs
   pinMode(IR1, INPUT);
   pinMode(IR2, INPUT);
   pinMode(IR3, INPUT);
 
-  // Ultrasonic sensor pins setup
+  // Set ultrasonic sensor pins
   pinMode(pinTrig, OUTPUT);
   pinMode(pinEcho, INPUT);
+  digitalWrite(pinTrig, LOW);
 
-  digitalWrite(pinTrig, LOW);  // Initial state for trigger
+  // Set PID parameters
+  pid.SetMode(AUTOMATIC);  // Enable PID control
+  pid.SetSampleTime(10);    // Set sample time to 10ms
 }
 
+// Loop function
 void loop() {
-  // Measure distance with ultrasonic sensor
-  digitalWrite(pinTrig, HIGH);
+  // Measure distance using ultrasonic sensor
+  digitalWrite(pinTrig, HIGH);        
   delayMicroseconds(10);
   digitalWrite(pinTrig, LOW);
-  
-  // Calculate distance in cm
-  timeElapsed = pulseIn(pinEcho, HIGH) / 2;
-  distance = (timeElapsed * 340.0) / 10000.0;
+  temps = pulseIn(pinEcho, HIGH);    
+  temps = temps / 2;
+  distance = (temps * 340) / 10000.0; // Convert to distance in cm
 
-  // Read IR sensor values and apply thresholds
-  int value_IR1 = (analogRead(IR1) > threshold) ? HIGH : LOW;
+  // Read IR sensor values
+  int value_IR1 = analogRead(IR1);
   int value_IR2 = digitalRead(IR2);
-  int value_IR3 = (analogRead(IR3) > threshold) ? HIGH : LOW;
-  int isObstacle = (distance > threshold2) ? LOW : HIGH;
+  int value_IR3 = analogRead(IR3);
+  value_IR1 = (value_IR1 > threshold) ? 1 : 0; // Convert to digital value
+  value_IR3 = (value_IR3 > threshold) ? 1 : 0; // Convert to digital value
+  distance = (distance > threshold2) ? 0 : 1; // Convert to digital value
 
-  // Debugging output
-  Serial.print("IR1: "); Serial.print(value_IR1);
-  Serial.print(" IR2: "); Serial.print(value_IR2);
-  Serial.print(" IR3: "); Serial.print(value_IR3);
-  Serial.print(" Distance: "); Serial.println(distance);
+  // Swap values for correct IR sensor orientation
+  int a = value_IR1;
+  value_IR1 = value_IR3;
+  value_IR3 = a;  
 
-  // Decision-making for maze navigation
-  if (value_IR1 == LOW && value_IR2 == HIGH && value_IR3 == LOW && isObstacle == LOW) {
-    Forward();  // Move forward if on track and no obstacle
-  } else if (value_IR1 == HIGH) {
-    Left();     // Left turn if left sensor detects line
-  } else if (value_IR1 == LOW && value_IR2 == LOW && value_IR3 == HIGH && isObstacle == LOW) {
-    Right();    // Right turn if right sensor detects line
-  } else if (value_IR1 == LOW && value_IR2 == HIGH && isObstacle == LOW) {
-    Forward();  // Continue forward if at a T-intersection and no obstacle
-  } else if (isObstacle == HIGH) {
-    U_Turn();   // Perform a U-turn if obstacle detected
-    delay(100);
+  // Debugging: Output sensor values to Serial Monitor
+  Serial.print(value_IR1);
+  Serial.print(value_IR2);
+  Serial.println(value_IR3);
+  Serial.print("Distance: ");
+  Serial.print(distance);
+
+  // Line following logic with PID control
+  if (value_IR1 == LOW && value_IR2 == HIGH && value_IR3 == LOW && distance == LOW) { // Straight path
+    Forward();
+  }
+
+  if (value_IR1 == HIGH) { // Left turn
+    Left();
+  }
+
+  if (value_IR1 == LOW && value_IR2 == LOW && value_IR3 == HIGH && distance == LOW) { // Right turn
+    Right();
+  }
+
+  if (value_IR1 == LOW && value_IR2 == HIGH && distance == LOW) { // Right intersection
+    Forward(); // Move forward if straight path is possible
+  }
+
+  if (distance == HIGH) { // Dead End
+    U_Turn();
+    delay(100); // No other direction is possible
   }
 }
 
-// Function to move forward
+// Functions for movement control
+
 void Forward() {
-  analogWrite(enA, MAX_SPEED);  // Set motor A speed
-  analogWrite(enB, MAX_SPEED);  // Set motor B speed
+  analogWrite(enA, 255); // Max speed for Motor A
+  analogWrite(enB, 255); // Max speed for Motor B
   digitalWrite(in1, HIGH);
   digitalWrite(in2, LOW);
   digitalWrite(in3, HIGH);
   digitalWrite(in4, LOW);
 }
 
-// Function to turn left
-void Left() {
-  analogWrite(enA, MAX_SPEED);
-  analogWrite(enB, MAX_SPEED);
-  digitalWrite(in1, LOW);
-  digitalWrite(in2, HIGH);
-  digitalWrite(in3, HIGH);
-  digitalWrite(in4, LOW);
-}
-
-// Function to turn right
 void Right() {
-  analogWrite(enA, MAX_SPEED);
-  analogWrite(enB, MAX_SPEED);
+  analogWrite(enA, 255); // Max speed for Motor A
+  analogWrite(enB, 255); // Max speed for Motor B
   digitalWrite(in1, HIGH);
   digitalWrite(in2, LOW);
   digitalWrite(in3, LOW);
   digitalWrite(in4, HIGH);
 }
 
-// Function to stop
+void Left() {
+  analogWrite(enA, 255); // Max speed for Motor A
+  analogWrite(enB, 255); // Max speed for Motor B
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+}
+
 void Stop() {
   digitalWrite(in1, LOW);
   digitalWrite(in2, LOW);
@@ -136,13 +167,11 @@ void Stop() {
   digitalWrite(in4, LOW);
 }
 
-// Function to perform a U-turn
 void U_Turn() {
-  analogWrite(enA, MAX_SPEED);
-  analogWrite(enB, MAX_SPEED);
+  analogWrite(enA, 255); // Max speed for Motor A
+  analogWrite(enB, 255); // Max speed for Motor B
   digitalWrite(in1, LOW);
   digitalWrite(in2, HIGH);
   digitalWrite(in3, HIGH);
   digitalWrite(in4, LOW);
-  Stop();
 }
