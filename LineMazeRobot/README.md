@@ -91,5 +91,5 @@ This project involves an Arduino-based robot that uses infrared (IR) sensors and
 
 For questions or contributions, please contact me through GitHub or open an issue in the repository.
 
-![Robot Image](LineMazeRobot/robotimage.png)
+![Robot Image](robotimage.png)
 
